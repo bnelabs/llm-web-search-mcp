@@ -161,6 +161,54 @@ Search request
 2. If ambiguous: GET with streaming, read `Content-Type` header
 3. Missing/octet-stream: fall back to extension, then default HTML pipeline
 
+**Download size limit:**
+- Hard cap: **50MB** per URL. Stream the response and abort if `Content-Length` exceeds limit or streamed bytes exceed limit (some servers omit `Content-Length`).
+- Return: `[File too large: {size}MB, limit is 50MB. Try downloading directly.]`
+- Rationale: Docling can OOM on huge documents, and large downloads block the single-threaded MCP server.
+
+**Concurrent Docling requests:**
+- Docling runs 1 worker — concurrent PDF/document requests queue up and can cascade timeouts.
+- Add a **semaphore** (max 1 in-flight Docling request). If a second request arrives while one is processing, wait up to 30s, then fail with `[Docling is busy processing another document. Try again shortly.]`
+- This prevents the LLM from firing 3 PDF fetches and waiting 180s total.
+
+**Stale search results (404 handling in search_and_fetch):**
+- When `searxng_search_and_fetch` encounters a 404/410, skip the result and **redistribute its token budget** to remaining results rather than wasting it.
+- Example: 3 results at 4000 tokens each, first is 404 → remaining 2 get 6000 tokens each.
+
+**Character encoding:**
+- Read `Content-Type` header for charset (e.g., `text/html; charset=shift_jis`).
+- Use `TextDecoder` with the declared encoding. If no charset declared, detect from HTML `<meta charset>` tag.
+- Fall back to UTF-8 if both are missing (correct for ~95% of the web).
+- Rationale: Japanese, Chinese, Korean financial sites often use legacy encodings.
+
+### Web Content Edge Cases
+
+**Paywalled / login-walled content:**
+- Sites like Bloomberg, WSJ, FT, Medium (metered) return paywall messages instead of content.
+- **Detection**: After Readability extraction, check for common paywall patterns:
+  - Text contains "subscribe to read", "sign in to continue", "free articles remaining"
+  - Content is suspiciously short (<200 chars) with login/subscribe links
+  - Known paywall domains (maintain a small list: `wsj.com`, `ft.com`, `bloomberg.com`, etc.)
+- **Response**: Return whatever preview content is available + hint:
+  `[Paywalled content — only preview/summary available. Full article requires subscription.]`
+- LLM knows not to treat paywall text as the actual answer.
+
+**Cloudflare / bot protection:**
+- Many sites serve CAPTCHA or JS challenges to automated requests.
+- **Mitigations**:
+  1. Set realistic `User-Agent` header: `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36`
+  2. Set `Accept`, `Accept-Language`, `Accept-Encoding` headers to mimic a real browser
+  3. **Detection**: After fetch, check for Cloudflare challenge signatures (`<title>Just a moment...</title>`, `cf-browser-verification`, `challenge-platform`)
+  4. **Response**: `[This page is behind bot protection (Cloudflare/similar). Use Playwright MCP to fetch with full browser rendering.]`
+- Same hint pattern as SPA detection — LLM automatically switches tools.
+
+**Cookie consent / GDPR banners:**
+- EU sites inject consent overlays that Readability sometimes includes in extracted content.
+- **Pre-processing** (before Readability): Strip DOM elements matching common consent patterns:
+  - Elements with `id` or `class` containing: `cookie`, `consent`, `gdpr`, `privacy-banner`, `cc-banner`, `onetrust`
+  - Elements with `role="dialog"` that contain "cookie" or "consent" text
+- Lightweight regex/selector pass on raw HTML before feeding to Readability.
+
 ### Security: URL Validation
 
 `searxng_fetch` accepts arbitrary URLs — SSRF risk. Validate before fetching:

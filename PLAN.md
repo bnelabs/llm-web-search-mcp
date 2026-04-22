@@ -86,12 +86,37 @@ Every external call can fail. The MCP server must handle failures gracefully —
 | Docling conversion | 60s | Complex PDFs with TableFormer can take 30s+; 60s is generous |
 | HEAD request (content-type) | 5s | Quick probe; fall back to GET if it fails |
 
-**Failure behavior per tool:**
-- `searxng_search`: If SearXNG is unreachable → return `{ error: "Search service unavailable", results: [] }`. The LLM can retry or adjust.
-- `searxng_fetch`: If URL returns 404/5xx → return `[Failed to fetch: HTTP {status}]`. If Docling is down and the URL is a document → return `[Document conversion unavailable — Docling service is not running. Try fetching an HTML page instead.]`
-- `searxng_search_and_fetch`: Partial success is OK — return results that succeeded, note failures inline: `[Failed: {url} — {reason}]`
+**Search fallback chain:**
 
-**Retry policy:** No automatic retries. The LLM client can retry if needed — retries at the MCP server level add latency and complexity without clear benefit.
+SearXNG is the primary search backend, but if the pod is down or unresponsive, the server falls back to the Brave Search API (free tier: 2,000 queries/month — sufficient for a fallback that only activates during outages).
+
+```
+Search request
+  → try SearXNG (localhost:30888, 10s timeout)
+  → if timeout/unreachable → try Brave Search API (api.search.brave.com)
+  → if both fail → return error to LLM client
+```
+
+**Configuration:**
+- `BRAVE_API_KEY` environment variable — optional. If not set, fallback is disabled and SearXNG is the only backend.
+- Brave free tier: https://brave.com/search/api/ — sign up, get key, no credit card required.
+- The Brave fallback uses the same response format as SearXNG (title, URL, snippet) so the rest of the pipeline (fetch, token budget) works identically regardless of which backend returned the results.
+
+**When fallback activates:**
+- SearXNG connection refused (pod not running)
+- SearXNG timeout (>10s)
+- SearXNG returns HTTP 5xx
+
+**When fallback does NOT activate:**
+- SearXNG returns 0 results (that's a valid response, not a failure)
+- SearXNG returns HTTP 429 rate limit (shouldn't happen with `limiter: false` on localhost)
+
+**Failure behavior per tool:**
+- `searxng_search`: Try SearXNG → fallback to Brave → if both fail, return `{ error: "Search service unavailable", results: [] }`. The LLM can retry or adjust.
+- `searxng_fetch`: If URL returns 404/5xx → return `[Failed to fetch: HTTP {status}]`. If Docling is down and the URL is a document → return `[Document conversion unavailable — Docling service is not running. Try fetching an HTML page instead.]`
+- `searxng_search_and_fetch`: Uses the same search fallback chain. Partial success on fetches is OK — return results that succeeded, note failures inline: `[Failed: {url} — {reason}]`
+
+**Retry policy:** No automatic retries beyond the fallback chain. The LLM client can retry if needed — retries at the MCP server level add latency and complexity without clear benefit.
 
 **Content-Type detection strategy:**
 1. First: check URL extension (`.pdf`, `.docx`, `.xlsx`, `.pptx`) — fast, no network call
@@ -410,6 +435,8 @@ That's it. No pdf-parse, no mammoth, no SheetJS, no tesseract.js — **Docling h
 |------|---------|
 | `src/tokens.ts` | Token estimation (4 chars ≈ 1 token), truncation at sentence boundaries |
 | `src/searxng.ts` | SearXNG JSON API client (`/search?q=...&format=json`) |
+| `src/brave.ts` | Brave Search API client (fallback when SearXNG is down) |
+| `src/search.ts` | Search orchestrator: SearXNG → Brave fallback chain |
 | `src/docling.ts` | Docling REST API client (`POST /v1/convert/source`) |
 | `src/extractor.ts` | Content-type router: HTML → in-process, everything else → Docling |
 | `src/index.ts` | MCP server with 3 tools |
@@ -533,12 +560,20 @@ HTTP Response (Content-Type detection from HEAD request)
 
 The server uses **stdio transport** (standard MCP protocol) — works with any MCP client. Configure per client:
 
+**Environment variables:**
+- `SEARXNG_URL` — SearXNG endpoint (default: `http://localhost:30888`)
+- `DOCLING_URL` — Docling endpoint (default: `http://localhost:30501`)
+- `BRAVE_API_KEY` — optional, enables Brave Search fallback when SearXNG is down
+
 **Claude Code** (`~/.claude/settings.json`):
 ```json
 "mcpServers": {
   "searxng": {
     "command": "node",
-    "args": ["/home/komedihp/searxng-mcp/dist/index.js"]
+    "args": ["/home/komedihp/searxng-mcp/dist/index.js"],
+    "env": {
+      "BRAVE_API_KEY": "<your-brave-api-key>"
+    }
   }
 }
 ```
@@ -549,7 +584,10 @@ The server uses **stdio transport** (standard MCP protocol) — works with any M
   "mcpServers": {
     "searxng": {
       "command": "node",
-      "args": ["/home/komedihp/searxng-mcp/dist/index.js"]
+      "args": ["/home/komedihp/searxng-mcp/dist/index.js"],
+      "env": {
+        "BRAVE_API_KEY": "<your-brave-api-key>"
+      }
     }
   }
 }
@@ -562,6 +600,8 @@ mcpServers:
     command: node
     args:
       - /home/komedihp/searxng-mcp/dist/index.js
+    env:
+      BRAVE_API_KEY: "<your-brave-api-key>"
 ```
 
 **Cursor / Generic MCP client** (`mcp.json` or equivalent):
@@ -569,7 +609,10 @@ mcpServers:
 {
   "searxng": {
     "command": "node",
-    "args": ["/home/komedihp/searxng-mcp/dist/index.js"]
+    "args": ["/home/komedihp/searxng-mcp/dist/index.js"],
+    "env": {
+      "BRAVE_API_KEY": "<your-brave-api-key>"
+    }
   }
 }
 ```

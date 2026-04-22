@@ -10,7 +10,7 @@ search:
     - json
 
 server:
-  secret_key: "<generate with: openssl rand -hex 32>"
+  secret_key: "60adef70cf462bb0f8fffeb1f138c9ed9e3c01f0a90249d18253e1260ac42a12"
   limiter: false
   public_instance: false
   image_proxy: false

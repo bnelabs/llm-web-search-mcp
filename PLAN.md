@@ -8,6 +8,7 @@ You want a self-hosted, **client-agnostic** web search MCP server that works wit
 - **Content extraction**: Docling (IBM, high-accuracy) for documents + Turndown for HTML → all output as Markdown
 - **Token budget**: configurable per-client (your current setup: 262k max, 230k target) — enforced server-side
 - **Use case**: Financial tables, tax sheets, balance sheets, annual plans, slide decks, investor relations documents, complex multi-format docs
+- **Google Workspace**: [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp) — Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Tasks, Contacts (community, MIT, client-agnostic)
 - **Existing tools**: Playwright MCP (configured separately per client)
 
 ### Why Docling for Document Processing
@@ -556,14 +557,72 @@ HTTP Response (Content-Type detection from HEAD request)
 3. `searxng_search_and_fetch` for broad research (one-shot, budget-capped)
 4. Playwright MCP only for JS-heavy SPAs that need browser rendering
 
-### Phase 7: Register with MCP Clients
+### Phase 7: Google Workspace MCP (Community)
 
-The server uses **stdio transport** (standard MCP protocol) — works with any MCP client. Configure per client:
+Add [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp) alongside the search MCP. This is the most complete Google Workspace MCP server (2.1k stars, MIT license, actively maintained). It provides AI access to 12 Google services — filling the gap that web search alone can't cover (your own emails, calendar, docs, sheets, etc.).
 
-**Environment variables:**
+**Services:** Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Apps Script, Tasks, Contacts, Custom Search
+
+**Why this server:**
+- Client-agnostic — works with Claude Code, OpenCode, Codex, VS Code, Cursor, LM Studio, any MCP client
+- OAuth 2.0/2.1 with auto token refresh — no API key management
+- No telemetry, no SaaS dependency — data path is only your machine → Google APIs
+- Supports stdio (single-user) and streamable-http (multi-user) transports
+- Tool tiers (`core`, `extended`, `complete`) to control scope per client
+- MIT license, fully auditable
+
+**Step 1: Prerequisites**
+
+```bash
+# Python 3.10+ and uv required
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Step 2: Google Cloud OAuth setup**
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → create project (or reuse existing)
+2. APIs & Services → Credentials → Create OAuth Client ID → **Desktop Application**
+3. Note the `Client ID` and `Client Secret`
+4. APIs & Services → Library → enable the APIs you need:
+   - Gmail API, Google Calendar API, Google Drive API
+   - Google Docs API, Google Sheets API, Google Slides API
+   - Google Forms API, Google Chat API, Google Tasks API
+   - People API (Contacts), Custom Search API (optional)
+
+**Step 3: First run (authenticate once)**
+
+```bash
+export GOOGLE_OAUTH_CLIENT_ID="<your-client-id>"
+export GOOGLE_OAUTH_CLIENT_SECRET="<your-client-secret>"
+
+# First run opens browser for OAuth consent — do this once
+uvx workspace-mcp --tool-tier core
+```
+
+Credentials are stored in `~/.google_workspace_mcp/credentials/` and auto-refresh.
+
+**Step 4: Choose your tool tier**
+
+| Tier | Tools | Use case |
+|------|-------|----------|
+| `core` | Essential read/write ops | Daily use — email, calendar, docs |
+| `extended` | Core + management ops | Admin tasks — permissions, sharing, bulk ops |
+| `complete` | Everything | Full Workspace automation |
+
+You can also cherry-pick services: `uvx workspace-mcp --tools gmail drive calendar sheets`
+
+### Phase 8: Register Both MCP Servers with Clients
+
+Both the search MCP (searxng-mcp) and Google Workspace MCP (workspace-mcp) use **stdio transport** — works with any MCP client. Configure per client:
+
+**Environment variables (searxng-mcp):**
 - `SEARXNG_URL` — SearXNG endpoint (default: `http://localhost:30888`)
 - `DOCLING_URL` — Docling endpoint (default: `http://localhost:30501`)
 - `BRAVE_API_KEY` — optional, enables Brave Search fallback when SearXNG is down
+
+**Environment variables (workspace-mcp):**
+- `GOOGLE_OAUTH_CLIENT_ID` — required
+- `GOOGLE_OAUTH_CLIENT_SECRET` — required for confidential clients
 
 **Claude Code** (`~/.claude/settings.json`):
 ```json
@@ -573,6 +632,14 @@ The server uses **stdio transport** (standard MCP protocol) — works with any M
     "args": ["/home/komedihp/searxng-mcp/dist/index.js"],
     "env": {
       "BRAVE_API_KEY": "<your-brave-api-key>"
+    }
+  },
+  "google-workspace": {
+    "command": "uvx",
+    "args": ["workspace-mcp", "--tool-tier", "core"],
+    "env": {
+      "GOOGLE_OAUTH_CLIENT_ID": "<your-client-id>",
+      "GOOGLE_OAUTH_CLIENT_SECRET": "<your-client-secret>"
     }
   }
 }
@@ -588,6 +655,37 @@ The server uses **stdio transport** (standard MCP protocol) — works with any M
       "env": {
         "BRAVE_API_KEY": "<your-brave-api-key>"
       }
+    },
+    "google-workspace": {
+      "command": "uvx",
+      "args": ["workspace-mcp", "--tool-tier", "core"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "<your-client-id>",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "<your-client-secret>"
+      }
+    }
+  }
+}
+```
+
+**Codex** (`mcp.json`):
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "node",
+      "args": ["/home/komedihp/searxng-mcp/dist/index.js"],
+      "env": {
+        "BRAVE_API_KEY": "<your-brave-api-key>"
+      }
+    },
+    "google-workspace": {
+      "command": "uvx",
+      "args": ["workspace-mcp", "--tool-tier", "core"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "<your-client-id>",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "<your-client-secret>"
+      }
     }
   }
 }
@@ -602,6 +700,15 @@ mcpServers:
       - /home/komedihp/searxng-mcp/dist/index.js
     env:
       BRAVE_API_KEY: "<your-brave-api-key>"
+  - name: google-workspace
+    command: uvx
+    args:
+      - workspace-mcp
+      - --tool-tier
+      - core
+    env:
+      GOOGLE_OAUTH_CLIENT_ID: "<your-client-id>"
+      GOOGLE_OAUTH_CLIENT_SECRET: "<your-client-secret>"
 ```
 
 **Cursor / Generic MCP client** (`mcp.json` or equivalent):
@@ -613,27 +720,41 @@ mcpServers:
     "env": {
       "BRAVE_API_KEY": "<your-brave-api-key>"
     }
+  },
+  "google-workspace": {
+    "command": "uvx",
+    "args": ["workspace-mcp", "--tool-tier", "core"],
+    "env": {
+      "GOOGLE_OAUTH_CLIENT_ID": "<your-client-id>",
+      "GOOGLE_OAUTH_CLIENT_SECRET": "<your-client-secret>"
+    }
   }
 }
 ```
 
-All clients will discover the same 3 tools:
-- `searxng_search`
-- `searxng_fetch`
-- `searxng_search_and_fetch`
+All clients will discover these tools:
+- **searxng-mcp**: `searxng_search`, `searxng_fetch`, `searxng_search_and_fetch`
+- **google-workspace**: Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Tasks, Contacts tools (scope depends on `--tool-tier`)
 
-### Phase 8: Verification
+### Phase 9: Verification
 
+**Search MCP:**
 1. **MicroK8s pods**: `microk8s kubectl get pods -A` — searxng and docling-serve both Running
 2. **GPU allocation**: `microk8s kubectl -n docling describe pod` — verify GPU attached
 3. **SearXNG API**: `curl "http://localhost:30888/search?q=hello&format=json"` returns results
 4. **Docling API**: `curl -X POST "http://localhost:30501/v1/convert/source" -H "Content-Type: application/json" -d '{"source":"https://example.com"}'` returns markdown
 5. **MCP tools/list**: `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node dist/index.js` shows 3 tools
-6. **Client integration**: restart your MCP client, verify the 3 tools appear
-7. **HTML test**: fetch a web article, verify clean Markdown output
-8. **PDF table test**: fetch a PDF with financial tables, verify table structure preserved
-9. **Budget test**: fetch a large document with `max_tokens: 500`, confirm truncation
-10. **XLSX test**: fetch an Excel file, verify multi-sheet Markdown output
+6. **HTML test**: fetch a web article, verify clean Markdown output
+7. **PDF table test**: fetch a PDF with financial tables, verify table structure preserved
+8. **Budget test**: fetch a large document with `max_tokens: 500`, confirm truncation
+9. **XLSX test**: fetch an Excel file, verify multi-sheet Markdown output
+
+**Google Workspace MCP:**
+10. **Server starts**: `uvx workspace-mcp --tool-tier core` — no errors, credentials loaded
+11. **Gmail**: ask the LLM to list recent emails — verify it returns real inbox data
+12. **Calendar**: ask the LLM to show today's events — verify calendar access
+13. **Drive**: ask the LLM to list recent files — verify Drive access
+14. **Cross-client**: test from at least 2 different MCP clients (e.g., Claude Code + OpenCode) to confirm client-agnostic behavior
 
 ---
 
@@ -649,7 +770,9 @@ All clients will discover the same 3 tools:
 - `/home/komedihp/searxng-mcp/src/searxng.ts` — SearXNG API client
 - `/home/komedihp/searxng-mcp/src/docling.ts` — Docling REST API client
 - `/home/komedihp/searxng-mcp/src/extractor.ts` — Content-type router (HTML in-process, docs → Docling)
-- Per-client MCP config (varies by client — see Phase 6)
+- Google Workspace MCP — installed via `uvx workspace-mcp` ([taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp))
+- `~/.google_workspace_mcp/credentials/` — OAuth tokens (auto-managed)
+- Per-client MCP config (varies by client — see Phase 8)
 
 ## Dependencies Summary
 
@@ -671,3 +794,13 @@ All clients will discover the same 3 tools:
 |---------|-------|------|-----|-----|
 | SearXNG | `searxng/searxng:latest` | ~500MB | 128-512MB | None |
 | Docling | `quay.io/docling-project/docling-serve-cu128:latest` | ~5-10GB | 2-8GB | 1x GPU (3090) |
+
+### Google Workspace MCP (Python — community)
+
+| Package | Source | Purpose |
+|---------|--------|---------|
+| `workspace-mcp` (PyPI) | [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp) | 12 Google Workspace services via MCP |
+| Python 3.10+ | System | Runtime |
+| `uv` / `uvx` | [astral-sh/uv](https://github.com/astral-sh/uv) | Package runner (no venv management needed) |
+
+Runs as a local process (~50-100MB RAM). No K8s deployment needed — `uvx` handles installation and execution.

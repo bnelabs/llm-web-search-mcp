@@ -69,7 +69,7 @@ All client configs in `client-configs/` already use this approach.
 | Check/create calendar events | workspace-mcp Calendar tools |
 | Read/edit Google Docs, Sheets, Slides | workspace-mcp Docs/Sheets/Slides tools |
 | Manage Drive files | workspace-mcp Drive tools |
-| JS-heavy SPAs needing browser rendering | Playwright MCP (separate) |
+| JS-heavy SPAs (Angular, React, Vue) | Playwright MCP (separate) — searxng_fetch auto-detects thin content and hints the LLM to use Playwright |
 
 ---
 
@@ -255,7 +255,7 @@ No pdf-parse, no mammoth, no SheetJS — Docling handles all document formats vi
 | `src/brave.ts` | Brave Search API client (fallback) |
 | `src/search.ts` | Search orchestrator: SearXNG → Brave fallback chain |
 | `src/docling.ts` | Docling REST API client |
-| `src/extractor.ts` | Content-type router: HTML → in-process, documents → Docling |
+| `src/extractor.ts` | Content-type router: HTML → in-process (with SPA detection), documents → Docling |
 | `src/index.ts` | MCP server with 3 tools |
 
 **Content pipeline (all output → Markdown):**
@@ -263,6 +263,15 @@ No pdf-parse, no mammoth, no SheetJS — Docling handles all document formats vi
 ```
 HTTP Response
 ├─ text/html ──────────────── Readability → Turndown (in-process, ~50ms)
+│                              │
+│                              └─ SPA detection: if extracted text < 100 chars
+│                                 but raw HTML > 50KB → likely JS-rendered.
+│                                 Return partial content + hint:
+│                                 "[Content may be incomplete — this page
+│                                  appears to require JavaScript rendering.
+│                                  Use Playwright MCP to fetch full content:
+│                                  mcp_playwright_navigate({url})]"
+│
 ├─ application/pdf ──────────┐
 ├─ application/vnd.openxml ──┤ Docling REST API (GPU-accelerated)
 ├─ text/csv ───────���─────────┤ POST http://localhost:30501/v1/convert/source

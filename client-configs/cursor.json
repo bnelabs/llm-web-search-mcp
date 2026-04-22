@@ -1,8 +1,10 @@
 {
   "searxng": {
     "command": "node",
-    "args": ["/home/komedihp/searxng-mcp/dist/index.js"],
+    "args": ["/home/komedi/workspace/llm-web-search-mcp/searxng-mcp/dist/index.js"],
     "env": {
+      "SEARXNG_URL": "http://localhost:30888",
+      "DOCLING_URL": "http://localhost:30501/mcp",
       "BRAVE_API_KEY": "<your-brave-api-key>"
     }
   },

@@ -14,8 +14,18 @@ interface SearxngRawResult {
   engine?: string;
 }
 
+interface SearxngInfobox {
+  infobox?: string;
+  id?: string;
+  content?: string;
+  engine?: string;
+  engines?: string[];
+  urls?: Array<{ title?: string; url: string }>;
+}
+
 interface SearxngRawResponse {
   results: SearxngRawResult[];
+  infoboxes?: SearxngInfobox[];
   number_of_results?: number;
   query: string;
 }
@@ -60,10 +70,33 @@ export async function searchSearXNG(
   }
 
   const data: SearxngRawResponse = await response.json();
-  return data.results.slice(0, options.maxResults || 5).map((r) => ({
+  const max = options.maxResults || 5;
+
+  const results: SearxngResult[] = data.results.slice(0, max).map((r) => ({
     title: r.title,
     url: r.url,
     snippet: r.content ?? "",
     engine: r.engine,
   }));
+
+  // Wikipedia (and other knowledge-panel engines) land in `infoboxes`, not
+  // `results`. Surface the best one as a synthetic first result when the
+  // main result list didn't already include a Wikipedia link for the same
+  // topic. Without this, "What is X?" queries that only Wikipedia answered
+  // would look empty to callers.
+  const infobox = data.infoboxes?.[0];
+  if (infobox && infobox.content) {
+    const primaryUrl = infobox.urls?.[0]?.url ?? "";
+    const hasSameUrl = primaryUrl && results.some((r) => r.url === primaryUrl);
+    if (!hasSameUrl) {
+      results.unshift({
+        title: infobox.infobox ?? "Knowledge panel",
+        url: primaryUrl,
+        snippet: infobox.content,
+        engine: infobox.engine ?? (infobox.engines ?? ["infobox"])[0],
+      });
+    }
+  }
+
+  return results.slice(0, max);
 }

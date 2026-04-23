@@ -5,37 +5,118 @@ general:
 
 search:
   safe_search: 0
+  autocomplete: ""
+  default_lang: ""
   formats:
     - html
     - json
+  # Max time SearXNG waits for any single engine; keeps a slow/captcha'd
+  # engine from stalling the aggregated response.
+  max_page: 0
 
 server:
   secret_key: "60adef70cf462bb0f8fffeb1f138c9ed9e3c01f0a90249d18253e1260ac42a12"
   limiter: false
   public_instance: false
   image_proxy: false
+  # Hard cap on per-engine request time. Engines exceeding this are marked
+  # unresponsive and don't block aggregation.
+  request_timeout: 4.0
 
 ui:
   static_use_hash: true
 
-# Engine selection: drop sources that actively rate-limit a single-IP
-# homelab. `brave` throttles aggressively via `SearxEngineTooManyRequests`;
-# `karmasearch` (pulled in by use_default_settings) returns 403 constantly.
-# DuckDuckGo is our primary general-web source because it's the most
-# permissive for single-IP automated use. Google is kept as a secondary;
-# Wikipedia / Stackoverflow / GitHub / arxiv are topical and don't rate-limit.
+# Coverage strategy: run a broad set of INDEPENDENT general engines in
+# parallel so no single one carries all the homelab's single-IP traffic.
+# Google and DuckDuckGo still participate, but they're no longer load-bearing
+# — if either gets CAPTCHA'd (it happens to any automated use, sooner or
+# later), the aggregated result stays healthy from the other six.
+#
+# Banned/unreliable sources are disabled: brave (aggressive rate limits),
+# karmasearch (permanent 403), startpage (uses Google upstream so shares its
+# CAPTCHA fate; redundant), baidu/360search (poor English results and hostile
+# to non-CN IPs), yandex (politically-scoped & unstable), aol/ask (low
+# quality).
 engines:
+  # --- General web, independent crawlers or permissive APIs ---
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
     disabled: false
+
   - name: google
     engine: google
     shortcut: g
     disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: false
+
+  - name: mojeek
+    engine: mojeek
+    shortcut: mjk
+    disabled: false
+
+  # yep (api.yep.com 400 Bad Request in current SearXNG) and mwmbl (parser
+  # IndexError in current SearXNG) are broken upstream; force them off so
+  # they don't spam logs or burn the engine timeout budget.
+  - name: yep
+    engine: yep
+    shortcut: yep
+    disabled: true
+  - name: yep images
+    engine: yep
+    shortcut: yepi
+    disabled: true
+  - name: yep news
+    engine: yep
+    shortcut: yepn
+    disabled: true
+  - name: mwmbl
+    engine: mwmbl
+    shortcut: mw
+    disabled: true
+
+  - name: crowdview
+    engine: json_engine
+    shortcut: cv
+    disabled: false
+
+  # --- General web engines to explicitly disable ---
+  - name: startpage
+    engine: startpage
+    shortcut: sp
+    disabled: true
+  - name: startpage news
+    engine: startpage
+    shortcut: spn
+    disabled: true
+  - name: startpage images
+    engine: startpage
+    shortcut: spi
+    disabled: true
   - name: brave
     engine: brave
     shortcut: br
+    disabled: true
+  - name: brave.images
+    engine: brave
+    shortcut: brimg
+    disabled: true
+  - name: brave.videos
+    engine: brave
+    shortcut: brvid
+    disabled: true
+  - name: brave.news
+    engine: brave
+    shortcut: brnews
     disabled: true
   - name: karmasearch
     engine: karmasearch
@@ -45,10 +126,80 @@ engines:
     engine: karmasearch
     shortcut: kav
     disabled: true
+  - name: yandex
+    engine: yandex
+    shortcut: yn
+    disabled: true
+  - name: yandex images
+    engine: yandex_images
+    shortcut: yni
+    disabled: true
+  - name: baidu
+    engine: baidu
+    shortcut: bd
+    disabled: true
+  - name: baidu images
+    engine: baidu_images
+    shortcut: bdi
+    disabled: true
+  - name: 360search
+    engine: 360search
+    shortcut: 360
+    disabled: true
+  - name: 360search videos
+    engine: 360search_videos
+    shortcut: 360v
+    disabled: true
+  - name: seznam
+    engine: seznam
+    shortcut: szn
+    disabled: true
+  - name: ask
+    engine: ask
+    shortcut: ask
+    disabled: true
+  - name: aol
+    engine: aol
+    shortcut: aol
+    disabled: true
+  - name: aol images
+    engine: aol_images
+    shortcut: aoli
+    disabled: true
+  - name: aol videos
+    engine: aol_videos
+    shortcut: aolv
+    disabled: true
+
+  # --- Reference / encyclopedic ---
   - name: wikipedia
     engine: wikipedia
     shortcut: wp
     disabled: false
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
+    disabled: false
+
+  # --- Scientific / academic ---
+  - name: arxiv
+    engine: arxiv
+    shortcut: ax
+    disabled: false
+  - name: crossref
+    engine: crossref
+    shortcut: cr
+    disabled: false
+  - name: pubmed
+    engine: pubmed
+    shortcut: pm
+    disabled: false
+  - name: google scholar
+    engine: google_scholar
+    shortcut: gs
+    disabled: false
+
+  # --- Developer / code / packages ---
   - name: stackoverflow
     engine: stackoverflow
     shortcut: so
@@ -57,7 +208,39 @@ engines:
     engine: github
     shortcut: gh
     disabled: false
-  - name: arxiv
-    engine: arxiv
-    shortcut: ax
+  - name: gitlab
+    engine: gitlab
+    shortcut: gl
     disabled: false
+  - name: docker hub
+    engine: docker_hub
+    shortcut: dh
+    disabled: false
+  - name: pypi
+    engine: pypi
+    shortcut: pypi
+    disabled: false
+  - name: npm
+    engine: npm
+    shortcut: npm
+    disabled: false
+  - name: crates.io
+    engine: crates
+    shortcut: crates
+    disabled: false
+
+  # --- Tech news / discussion ---
+  - name: hackernews
+    engine: hackernews
+    shortcut: hn
+    disabled: false
+  - name: lobste.rs
+    engine: xpath
+    shortcut: lo
+    disabled: false
+
+  # --- News aggregated (keeps default-enabled ones; disables redundant Yahoo=Bing) ---
+  - name: yahoo news
+    engine: yahoo_news
+    shortcut: yhn
+    disabled: true

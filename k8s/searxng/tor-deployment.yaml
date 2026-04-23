@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tor
+  namespace: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tor
+  template:
+    metadata:
+      labels:
+        app: tor
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: tor
+          image: peterdavehello/tor-socks-proxy:latest
+          ports:
+            - containerPort: 9150
+              name: socks
+          readinessProbe:
+            tcpSocket:
+              port: 9150
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: 9150
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tor
+  namespace: searxng
+spec:
+  type: ClusterIP
+  selector:
+    app: tor
+  ports:
+    - port: 9050
+      targetPort: 9150
+      name: socks

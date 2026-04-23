@@ -10,8 +10,6 @@ search:
   formats:
     - html
     - json
-  # Max time SearXNG waits for any single engine; keeps a slow/captcha'd
-  # engine from stalling the aggregated response.
   max_page: 0
 
 server:
@@ -19,9 +17,13 @@ server:
   limiter: false
   public_instance: false
   image_proxy: false
-  # Hard cap on per-engine request time. Engines exceeding this are marked
-  # unresponsive and don't block aggregation.
-  request_timeout: 4.0
+
+# Global HTTP timeouts. Engines may override with their own `timeout:`.
+# Relaxed from the previous 4s to accommodate Tor-routed engines (Google,
+# Bing, DuckDuckGo), which can take 5–15s per circuit.
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 20.0
 
 ui:
   static_use_hash: true
@@ -39,20 +41,34 @@ ui:
 # quality).
 engines:
   # --- General web, independent crawlers or permissive APIs ---
+  # Google/Bing/DDG routed through the in-cluster Tor SOCKS proxy so the
+  # homelab egress IP never hits these upstreams directly — avoids the
+  # CAPTCHA/soft-block escalation that eventually catches any scraping
+  # aggregator on a single IP. Timeout is raised to 15s because Tor
+  # circuits add 5–10s of latency.
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
     disabled: false
+    timeout: 15.0
+    proxies:
+      all://: socks5h://tor:9050
 
   - name: google
     engine: google
     shortcut: g
     disabled: false
+    timeout: 15.0
+    proxies:
+      all://: socks5h://tor:9050
 
   - name: bing
     engine: bing
     shortcut: b
     disabled: false
+    timeout: 15.0
+    proxies:
+      all://: socks5h://tor:9050
 
   - name: qwant
     engine: qwant
@@ -83,11 +99,6 @@ engines:
     engine: mwmbl
     shortcut: mw
     disabled: true
-
-  - name: crowdview
-    engine: json_engine
-    shortcut: cv
-    disabled: false
 
   # --- General web engines to explicitly disable ---
   - name: startpage
@@ -233,10 +244,6 @@ engines:
   - name: hackernews
     engine: hackernews
     shortcut: hn
-    disabled: false
-  - name: lobste.rs
-    engine: xpath
-    shortcut: lo
     disabled: false
 
   # --- News aggregated (keeps default-enabled ones; disables redundant Yahoo=Bing) ---

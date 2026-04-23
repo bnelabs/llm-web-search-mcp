@@ -6,7 +6,10 @@ general:
 search:
   safe_search: 0
   autocomplete: ""
-  default_lang: ""
+  # SearXNG's scrape parsers target the en-US SERP variant of each engine;
+  # leaving this blank made Bing/DDG fall back to per-IP geolocation which
+  # could land on a locale the parser didn't match. Pin to English.
+  default_lang: "en"
   formats:
     - html
     - json
@@ -41,34 +44,28 @@ ui:
 # quality).
 engines:
   # --- General web, independent crawlers or permissive APIs ---
-  # Google/Bing/DDG routed through the in-cluster Tor SOCKS proxy so the
-  # homelab egress IP never hits these upstreams directly — avoids the
-  # CAPTCHA/soft-block escalation that eventually catches any scraping
-  # aggregator on a single IP. Timeout is raised to 15s because Tor
-  # circuits add 5–10s of latency.
+  # Tor routing experiment (2026-04) reverted: Google returned 429 and
+  # DDG returned 403 on the majority of Tor exits; Bing returned 200 but
+  # served geo-localized SERPs (Polish/German/etc.) that don't match
+  # SearXNG's en-US Bing parser, so it extracted 0 results even on HTTP
+  # success. Net: all three were worse via Tor than direct. Home-IP
+  # CAPTCHA pressure still exists but is the lesser evil; the broad
+  # independent-engine fan-out keeps the aggregator healthy when any
+  # single one cools down.
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
     disabled: false
-    timeout: 15.0
-    proxies:
-      all://: socks5h://tor:9050
 
   - name: google
     engine: google
     shortcut: g
     disabled: false
-    timeout: 15.0
-    proxies:
-      all://: socks5h://tor:9050
 
   - name: bing
     engine: bing
     shortcut: b
     disabled: false
-    timeout: 15.0
-    proxies:
-      all://: socks5h://tor:9050
 
   - name: qwant
     engine: qwant

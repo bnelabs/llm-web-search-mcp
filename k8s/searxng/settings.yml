@@ -18,19 +18,33 @@ server:
 ui:
   static_use_hash: true
 
+# Engine selection: drop sources that actively rate-limit a single-IP
+# homelab. `brave` throttles aggressively via `SearxEngineTooManyRequests`;
+# `karmasearch` (pulled in by use_default_settings) returns 403 constantly.
+# DuckDuckGo is our primary general-web source because it's the most
+# permissive for single-IP automated use. Google is kept as a secondary;
+# Wikipedia / Stackoverflow / GitHub / arxiv are topical and don't rate-limit.
 engines:
-  - name: google
-    engine: google
-    shortcut: g
-    disabled: false
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
     disabled: false
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
   - name: brave
     engine: brave
     shortcut: br
-    disabled: false
+    disabled: true
+  - name: karmasearch
+    engine: karmasearch
+    shortcut: ka
+    disabled: true
+  - name: karmasearch videos
+    engine: karmasearch
+    shortcut: kav
+    disabled: true
   - name: wikipedia
     engine: wikipedia
     shortcut: wp

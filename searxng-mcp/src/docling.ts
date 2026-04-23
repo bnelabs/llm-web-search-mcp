@@ -165,3 +165,49 @@ export async function convertDocument(source: string): Promise<string> {
     await closeDoclingSession(baseUrl, sessionId);
   }
 }
+
+export interface FastConvertResult {
+  markdown: string;
+  pages: number;
+  chars: number;
+  avgCharsPerPage: number;
+  looksScanned: boolean;
+}
+
+/**
+ * Fast PDF conversion via PyMuPDF4LLM (+pymupdf-layout) on the same docling-mcp pod.
+ * Returns structured metadata so the orchestrator can decide whether to fall
+ * back to the full docling pipeline for scanned / layout-heavy docs.
+ */
+export async function convertDocumentFast(source: string): Promise<FastConvertResult> {
+  const baseUrl = process.env.DOCLING_URL || DEFAULT_DOCLING_URL;
+  const sessionId = await doclingSession(baseUrl);
+  try {
+    const r = await callDoclingTool<{
+      markdown: string;
+      pages: number;
+      chars: number;
+      avg_chars_per_page: number;
+      looks_scanned: boolean;
+    }>(
+      baseUrl,
+      sessionId,
+      "convert_url_fast",
+      { source },
+      2,
+      60000,
+    );
+    if (typeof r.markdown !== "string") {
+      throw new Error("convert_url_fast returned no markdown");
+    }
+    return {
+      markdown: r.markdown,
+      pages: r.pages,
+      chars: r.chars,
+      avgCharsPerPage: r.avg_chars_per_page,
+      looksScanned: r.looks_scanned,
+    };
+  } finally {
+    await closeDoclingSession(baseUrl, sessionId);
+  }
+}
